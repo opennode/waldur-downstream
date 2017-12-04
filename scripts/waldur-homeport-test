@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+docker run -v /dev/shm:/dev/shm --interactive --rm --volume "$(pwd):/mnt:rw" --workdir=/mnt waldur-homeport-build:centos7 sh -cex "
+  cp -r /mnt /work && cd /work
+  yarn install && yarn test
+"

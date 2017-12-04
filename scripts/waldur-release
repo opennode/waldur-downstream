@@ -1,0 +1,142 @@
+#!/bin/sh -e
+#
+# Based on Git flow
+#
+# Requires: git
+
+finish_release() {
+    local release="$1"
+    local release_branch="release/$release"
+
+    git fetch
+    if [ "$push_release" = true ]; then
+        git checkout "$release_branch" && git pull origin "$release_branch" || exit 1
+    else
+        git checkout "$release_branch"
+    fi
+
+    # Finish release
+    # git-flow mistakenly tags release branch but master branch needs to be tagged instead
+    #git flow release finish --message "New release: $release" "$release"
+
+    git checkout master && git pull origin master || exit 1
+    git merge --no-ff "$release_branch"
+
+    git tag "v$release"
+
+    git checkout develop && git pull origin develop
+    git merge --no-ff "$release_branch"
+
+    git branch -d "$release_branch"
+
+    git --no-pager log -10 --decorate --graph --oneline --all
+
+    # Push release
+    if [ "$push_release" = true ]; then
+        git push origin --all
+        git push origin --tags
+        git push origin --delete "$release_branch"
+    else
+        echo "Dry run: not pushing changes to remote Git server"
+    fi
+}
+
+print_usage() {
+    cat <<EOF
+Usage: $prog [ -d -l ] {start|finish} <version>
+
+Options:
+
+ -d  Debug mode: print commands being executed
+ -l  Local only: commit changes locally but do not push them to remote repository
+
+Example:
+
+  $prog 0.42.0
+
+EOF
+}
+
+start_release() {
+    local release="$1"
+    local release_branch="release/$release"
+
+    # Start release branch
+    # git-flow requires configuration using git-flow init
+    #git flow release start "$release"
+    git checkout develop && git pull origin develop || exit 1
+    git checkout -b "$release_branch"
+
+    # Prepare release
+    if [ -f package.json ]; then
+        sed -i "s/^  \"version\": \".*\",$/  \"version\": \"$release\",/" package.json
+        git add package.json
+    fi
+    if [ -f setup.py ]; then
+        sed -i "s/^    version='.*',$/    version='$release',/" setup.py
+        git add setup.py
+    fi
+
+    for rpmspec_file in $(ls packaging/*.spec); do
+        sed -i "s/Version: .*$/Version: $release/" "$rpmspec_file"
+        sed -i "s/Release: .*$/Release: 1.el7/" "$rpmspec_file"
+        sed -i "s/^%changelog$/%changelog\n* $(date +'%a %b %-e %Y') $(git config user.name) <$(git config user.email)> - $release-1.el7\n- New upstream release\n/" "$rpmspec_file"
+        git add "$rpmspec_file"
+    done
+
+    git commit -m "Preparing new release: $release"
+    git show -p
+    git --no-pager log -10 --decorate --graph --oneline --all
+
+    # Push release branch
+    if [ "$push_release" = true ]; then
+        git push --set-upstream origin "$release_branch"
+    else
+        echo "Dry run: not pushing changes to remote Git server"
+    fi
+}
+
+
+push_release=true
+
+prog=$(basename "$0")
+
+while getopts dl opt; do
+    case "$opt" in
+        l)
+            echo "Local only (dry run): yes"
+            push_release=false
+            shift
+        ;;
+        d)
+            echo "Debug mode: on"
+            set -x
+            shift
+        ;;
+        \?)
+            print_usage
+            exit 1
+        ;;
+    esac
+done
+
+if [ $# -lt 2 ]; then
+    print_usage
+    exit 1
+fi
+
+action="$1"
+release="$2"
+
+case "$action" in
+    start)
+        start_release "$release"
+    ;;
+    finish)
+        finish_release "$release"
+    ;;
+    *)
+        print_usage
+        exit 1
+    ;;
+esac

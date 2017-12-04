@@ -1,0 +1,26 @@
+#!/bin/sh -e
+#
+# Requires: docker
+#
+
+for spec_file in packaging/*.spec; do
+    echo "[+] RPM spec file found: $spec_file"
+    echo "[+] Starting Docker container to build RPMs..."
+    docker run --interactive --rm --volume "$(pwd):/mnt:rw" --workdir=/mnt waldur-mastermind-build:centos7 sh -cex "
+        yum -y install https://opennodecloud.com/centos/7/waldur-release.rpm
+        rpmlint '$spec_file'
+        # XXX
+        # repomd.xml is missing in some vault.centos.org repo.
+        # These repos are disabled by default but yum-builddep enables them.
+        # See also:
+        #  - https://bugs.centos.org/view.php?id=12793
+        #  - https://linux.die.net/man/1/yum-builddep
+        grep -lR vault.centos.org /etc/yum.repos.d | xargs rm
+        # /XXX
+        yum-builddep -y '$spec_file'
+        my-buildpackage-rpm
+        cp /root/rpmbuild/RPMS/*/*.rpm ./
+    "
+done
+
+echo "All done."

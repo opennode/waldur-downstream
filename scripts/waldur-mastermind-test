@@ -1,0 +1,44 @@
+#!/bin/sh -ex
+#
+# Requires: docker, git
+
+current_dir="$(pwd)"
+[ -d waldur-core ] && rm -rf waldur-core
+mkdir -p waldur-core
+git clone https://github.com/opennode/waldur-core.git
+cd waldur-core
+cd "$current_dir"
+
+# Run module tests
+docker run -i --rm -v "$(pwd)":/mnt:ro waldur-mastermind-test:centos7 sh -c "
+    set -e
+
+    cp -r /mnt /tmp/mnt
+
+    echo '[+] Installing Waldur Core...'
+    cd /tmp/mnt/waldur-core
+    pip install --upgrade -e .[tests]
+    python setup.py develop
+
+    echo '[+] Installing Waldur plugin...'
+    cd /tmp/mnt
+    pip install --upgrade -e .[tests]
+    python setup.py develop
+
+    echo '[+] Running unit tests for module: waldur_core.core'
+    DJANGO_SETTINGS_MODULE=waldur_core.server.test_settings waldur test waldur_core.core \$test_params
+
+    echo '[+] Running security tests for module: waldur_core.core'
+    bandit --ini /tmp/mnt/waldur-core/.bandit -r /tmp/mnt/waldur-core
+
+    ls src | grep -v egg | while read module_name; do
+        echo '[+] Running unit tests for module:' \$module_name
+        DJANGO_SETTINGS_MODULE=waldur_core.server.test_settings waldur test \$module_name \$test_params
+
+        echo '[+] Running security tests for module:' \$module_name
+        bandit --ini .bandit -x waldur-core,tests -r .
+    done
+"
+
+# Clean up
+[ -d waldur-core ] && rm -rf waldur-core

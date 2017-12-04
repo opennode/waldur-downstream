@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+
+docker run -i --rm -v "$(pwd)":/mnt:ro waldur-mastermind-test:centos7 sh -cex "
+    cp -r /mnt /tmp/mnt
+    cd /tmp/mnt
+
+    pip uninstall -y unittest-xml-reporting  # TMP
+
+    python setup.py test
+"
